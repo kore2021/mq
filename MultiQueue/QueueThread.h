@@ -16,13 +16,9 @@ namespace mq
 {
   constexpr auto c_IdleTimeout = std::chrono::milliseconds(1);
 
-  template <typename QueueKey>
-  class QueueThread : public Queue<QueueKey>::IListener
+  class QueueThread : public Queue::IListener
   {
   public:
-    using Queue = Queue<QueueKey>;
-    using Consumer = IConsumer<QueueKey>;
-
     QueueThread() = default;
     ~QueueThread() override;
 
@@ -30,7 +26,7 @@ namespace mq
     void shutdown();
     void flush();
 
-    void attach(Queue& queue, std::weak_ptr<Consumer> pConsumer);
+    void attach(Queue& queue, std::weak_ptr<IConsumer> pConsumer);
     void detach(Queue& queue);
     size_t capacity() const;
 
@@ -44,25 +40,23 @@ namespace mq
     std::unique_ptr<std::thread> m_pThread;
 
     std::set<const Queue*> m_enqueued;
-    std::map<Queue*, std::weak_ptr<Consumer>> m_consumers;
+    std::map<Queue*, std::weak_ptr<IConsumer>> m_consumers;
   };
 }
 
-template <typename QueueKey>
-mq::QueueThread<QueueKey>::~QueueThread()
+mq::QueueThread::~QueueThread()
 {
   shutdown();
 }
 
-template <typename QueueKey>
-void mq::QueueThread<QueueKey>::run()
+void mq::QueueThread::run()
 {
   if (m_pThread)
     return;
 
   m_pThread = std::make_unique<std::thread>(
     [&]() {
-      auto enqueued = std::vector<std::pair<Queue*, std::weak_ptr<Consumer>>>{};
+      auto enqueued = std::vector<std::pair<Queue*, std::weak_ptr<IConsumer>>>{};
       while (m_running)
       {
         enqueued.clear();
@@ -101,8 +95,7 @@ void mq::QueueThread<QueueKey>::run()
     });
 }
 
-template <typename QueueKey>
-void mq::QueueThread<QueueKey>::shutdown()
+void mq::QueueThread::shutdown()
 {
   if (!m_pThread)
     return;
@@ -112,9 +105,7 @@ void mq::QueueThread<QueueKey>::shutdown()
   m_pThread.reset();
 }
 
-
-template <typename QueueKey>
-void mq::QueueThread<QueueKey>::flush()
+void mq::QueueThread::flush()
 {
   size_t enqueued = 0;
   do
@@ -133,8 +124,7 @@ void mq::QueueThread<QueueKey>::flush()
   } while (enqueued);
 }
 
-template <typename QueueKey>
-void mq::QueueThread<QueueKey>::attach(Queue& queue, std::weak_ptr<Consumer> pConsumer)
+void mq::QueueThread::attach(Queue& queue, std::weak_ptr<IConsumer> pConsumer)
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   m_consumers[&queue] = pConsumer;
@@ -142,8 +132,7 @@ void mq::QueueThread<QueueKey>::attach(Queue& queue, std::weak_ptr<Consumer> pCo
   queue.addListener(this);
 }
 
-template <typename QueueKey>
-void mq::QueueThread<QueueKey>::detach(Queue& queue)
+void mq::QueueThread::detach(Queue& queue)
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   queue.removeListener(this);
@@ -151,15 +140,13 @@ void mq::QueueThread<QueueKey>::detach(Queue& queue)
   m_consumers.erase(&queue);
 }
 
-template <typename QueueKey>
-size_t mq::QueueThread<QueueKey>::capacity() const
+size_t mq::QueueThread::capacity() const
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   return m_consumers.size();
 }
 
-template <typename QueueKey>
-void mq::QueueThread<QueueKey>::onEnqueued(const Queue& queue)
+void mq::QueueThread::onEnqueued(const Queue& queue)
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   m_enqueued.insert(&queue);

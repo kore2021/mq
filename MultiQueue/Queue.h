@@ -11,13 +11,6 @@
 
 namespace mq
 {
-  template <typename QueueKey>
-  class IQueueListener;
-}
-
-namespace mq
-{
-  template <typename QueueKey>
   class Queue
   {
   public:
@@ -26,10 +19,8 @@ namespace mq
     public:
       virtual ~IListener() = default;
 
-      virtual void onEnqueued(const Queue& pQueue) = 0;
+      virtual void onEnqueued(const Queue& queue) = 0;
     };
-
-    using Queueable = IQueueable<QueueKey>;
 
     Queue() = default;
     Queue(Queue&&) = default;
@@ -39,8 +30,8 @@ namespace mq
     Queue(const Queue&) = delete;
     Queue& operator=(const Queue&) = delete;
 
-    void enqueue(std::unique_ptr<Queueable>);
-    std::unique_ptr<Queueable> dequeue();
+    void enqueue(std::unique_ptr<IQueueable>);
+    std::unique_ptr<IQueueable> dequeue();
     size_t size() const;
 
     void addListener(IListener* pListener);
@@ -48,13 +39,12 @@ namespace mq
 
   private:
     mutable std::mutex m_mutex;
-    std::queue<std::unique_ptr<Queueable>> m_queue;
+    std::queue<std::unique_ptr<IQueueable>> m_queue;
     std::vector<IListener*> m_listeners;
   };
 }
 
-template <typename QueueKey>
-void mq::Queue<QueueKey>::enqueue(std::unique_ptr<Queueable> pQueueable)
+void mq::Queue::enqueue(std::unique_ptr<IQueueable> pQueueable)
 {
   std::vector<IListener*> listeners;
   {
@@ -67,8 +57,7 @@ void mq::Queue<QueueKey>::enqueue(std::unique_ptr<Queueable> pQueueable)
     pListener->onEnqueued(*this);
 }
 
-template <typename QueueKey>
-std::unique_ptr<typename mq::Queue<QueueKey>::Queueable> mq::Queue<QueueKey>::dequeue()
+std::unique_ptr<mq::IQueueable> mq::Queue::dequeue()
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   if (m_queue.empty())
@@ -79,15 +68,13 @@ std::unique_ptr<typename mq::Queue<QueueKey>::Queueable> mq::Queue<QueueKey>::de
   return result;
 }
 
-template <typename QueueKey>
-size_t mq::Queue<QueueKey>::size() const
+size_t mq::Queue::size() const
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   return m_queue.size();
 }
 
-template <typename QueueKey>
-void mq::Queue<QueueKey>::addListener(IListener* pListener)
+void mq::Queue::addListener(IListener* pListener)
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   auto it = std::find(m_listeners.begin(), m_listeners.end(), pListener);
@@ -97,8 +84,7 @@ void mq::Queue<QueueKey>::addListener(IListener* pListener)
   m_listeners.emplace_back(pListener);
 }
 
-template <typename QueueKey>
-void mq::Queue<QueueKey>::removeListener(IListener* pListener)
+void mq::Queue::removeListener(IListener* pListener)
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   auto it = std::find(m_listeners.begin(), m_listeners.end(), pListener);

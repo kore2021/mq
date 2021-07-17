@@ -19,14 +19,12 @@ class QueueableDeal;
 using QueueKey = string;
 using QueueValueOwner = string;
 using QueueValueCountable = int;
-using QueueValue = pair<QueueValueOwner, QueueValueCountable>;
-using Queueable = mq::IQueueable<QueueKey>;
+using QueueValue = tuple<QueueKey, QueueValueOwner, QueueValueCountable>;
 using QueueProcessor = mq::QueueProcessor<QueueKey>;
 using Producer = thread;
 using ProducerStorage = map<string, std::unique_ptr<Producer>>;
-using Consumer = mq::IConsumer<QueueKey>;
-using ConsumerStorage = map<string, std::shared_ptr<Consumer>>;
-using DepositoryRecord = tuple<string, QueueKey, QueueValue>;
+using ConsumerStorage = map<string, std::shared_ptr<mq::IConsumer>>;
+using DepositoryRecord = pair<string, QueueValue>;
 using Depository = pair<mutex, vector<DepositoryRecord>>;
 using Accountant = map<QueueKey, QueueValueCountable>;
 
@@ -107,32 +105,22 @@ int main()
   return 0;
 }
 
-ostream& operator<< (std::ostream& ostream, const QueueValue& value)
-{
-  ostream << value.first << " - " << value.second;
-  return ostream;
-}
-
 ostream& operator<< (std::ostream& ostream, const DepositoryRecord& value)
 {
-  ostream << get<0>(value) << "[" << get<1>(value) << "]: " << get<2>(value);
+  ostream << value.first << "[" << get<0>(value.second) << "]: " << get<1>(value.second) << " - " << get<2>(value.second);
   return ostream;
 }
 
-class QueueableDeal : public Queueable
+class QueueableDeal : public mq::IQueueable
 {
 public:
-  QueueableDeal(const QueueKey& key, const QueueValue& value) : m_key(key), m_value(value) {}
+  QueueableDeal(const QueueValue& value) : m_value(value) {}
   ~QueueableDeal() override = default;
-
-  // IQueueable
-  QueueKey queueKey() const override { return m_key; }
 
   // self
   QueueValue value() const { return m_value; }
 
 private:
-  const QueueKey m_key;
   const QueueValue m_value;
 };
 
@@ -147,7 +135,7 @@ void addProducer(QueueProcessor& processor, const string& name, const vector<pai
   producers[name] = std::make_unique<Producer>(
     [name, wishlist, latency, &processor]()
     {
-      vector<tuple<std::weak_ptr<QueueProcessor::Queue>, QueueKey, size_t>> wishes;
+      vector<tuple<std::weak_ptr<mq::Queue>, QueueKey, size_t>> wishes;
       for (const auto& wish : wishlist)
         if (wish.second)
           if (auto pQueue = processor.getQueue(wish.first))
@@ -170,7 +158,7 @@ void addProducer(QueueProcessor& processor, const string& name, const vector<pai
             // take only c_unitPerDeal units per a deal
             const auto dealValue = std::min<size_t>(c_unitPerDeal, wishValue);
             const auto& wishName = get<1>(wish);
-            auto pDeal = std::make_unique<QueueableDeal>(wishName, QueueValue(name, dealValue));
+            auto pDeal = std::make_unique<QueueableDeal>(QueueValue(wishName, name, dealValue));
             pQueue->enqueue(move(pDeal));
             wishValue -= dealValue;
           }
@@ -187,7 +175,7 @@ void addProducer(QueueProcessor& processor, const string& name, const vector<pai
 
 void addBroker(QueueProcessor& processor, const string& name, const set<string>& capabilities, std::chrono::milliseconds latency, Depository& depo, ConsumerStorage& consumers)
 {
-  class DepositoryConsumer : public Consumer
+  class DepositoryConsumer : public mq::IConsumer
   {
   public:
     DepositoryConsumer(const string name, std::chrono::milliseconds latency, Depository& depository) :
@@ -198,12 +186,12 @@ void addBroker(QueueProcessor& processor, const string& name, const set<string>&
     }
 
     // IConsumer
-    void consume(const Queueable& value) override
+    void consume(const mq::IQueueable& value) override
     {
       {
         const auto& deal = dynamic_cast<const QueueableDeal&>(value);
         const std::lock_guard<std::mutex> lock(m_depository.first);
-        m_depository.second.emplace_back(m_name, deal.queueKey(), deal.value());
+        m_depository.second.emplace_back(m_name, deal.value());
       }
 
       this_thread::sleep_for(m_latency);
@@ -235,7 +223,7 @@ bool checkDepository(const Accountant& accountant, Depository& depo)
   auto depoAccountant = Accountant{};
   const std::lock_guard<std::mutex> lock(depo.first);
   for (const auto& record : depo.second)
-    depoAccountant[get<1>(record)] += get<2>(record).second;
+    depoAccountant[get<0>(record.second)] += get<2>(record.second);
   if (depoAccountant == accountant)
     return true;
 

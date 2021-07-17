@@ -17,10 +17,6 @@ namespace mq
   class QueueProcessor
   {
   public:
-    using Queue = Queue<QueueKey>;
-    using QueueThread = QueueThread<QueueKey>;
-    using Consumer = IConsumer<QueueKey>;
-
     QueueProcessor(size_t threadCount);
     ~QueueProcessor();
 
@@ -30,7 +26,7 @@ namespace mq
     void removeQueue(const QueueKey& key);
     std::shared_ptr<Queue> getQueue(const QueueKey& key);
 
-    void setConsumer(const QueueKey& key, std::weak_ptr<Consumer> pConsumer);
+    void setConsumer(const QueueKey& key, std::weak_ptr<IConsumer> pConsumer);
 
     void run();
     void shutdown();
@@ -43,7 +39,7 @@ namespace mq
     struct QueueWithConsumer
     {
       std::shared_ptr<Queue> pQueue;
-      std::weak_ptr<Consumer> pConsumer;
+      std::weak_ptr<IConsumer> pConsumer;
       std::weak_ptr<QueueThread> pConsumerThread;
     };
 
@@ -89,7 +85,7 @@ void mq::QueueProcessor<QueueKey>::removeQueue(const QueueKey& key)
 }
 
 template <typename QueueKey>
-std::shared_ptr<mq::Queue<QueueKey>> mq::QueueProcessor<QueueKey>::getQueue(const QueueKey& key)
+std::shared_ptr<mq::Queue> mq::QueueProcessor<QueueKey>::getQueue(const QueueKey& key)
 {
   const std::lock_guard<std::mutex> lock(m_queueMutex);
   auto it = m_queues.find(key);
@@ -100,7 +96,7 @@ std::shared_ptr<mq::Queue<QueueKey>> mq::QueueProcessor<QueueKey>::getQueue(cons
 }
 
 template <typename QueueKey>
-void mq::QueueProcessor<QueueKey>::setConsumer(const QueueKey& key, std::weak_ptr<Consumer> pConsumer)
+void mq::QueueProcessor<QueueKey>::setConsumer(const QueueKey& key, std::weak_ptr<IConsumer> pConsumer)
 {
   const std::lock_guard<std::mutex> lock(m_queueMutex);
   auto it = m_queues.find(key);
