@@ -52,6 +52,10 @@ int main()
 
   auto accountant = Accountant{};
   auto producers = ProducerStorage{};
+  auto consumers = ConsumerStorage{};
+
+  addBroker(processor, "Ankylosaurus", { "EUR" }, 100ms, depository, consumers);
+
   addProducer(processor, "Alice",
   {
     { "EUR",  4 },
@@ -65,15 +69,21 @@ int main()
   }, 50ms, producers, accountant);
   addProducer(processor, "Clare",
   {
-    { "EUR",  1 },
+    { "EUR", 11 },
     { "USD", 10 }
   }, 20ms, producers, accountant);
-  auto consumers = ConsumerStorage{};
+
   addBroker(processor, "T. Rex", { "RUB", "USD" }, 50ms, depository, consumers);
   // There is a example how to replace a consumer on the fly
   // Timeout allows emulating a lag
   this_thread::sleep_for(100ms);
   addBroker(processor, "Acrocanthosaurus", { "USD" }, 10ms, depository, consumers);
+
+  // Emulate processing with a detached consumer
+  this_thread::sleep_for(100ms);
+  processor.setConsumer("EUR", {});
+  this_thread::sleep_for(200ms);
+
   addBroker(processor, "Torvosaurus", { "EUR" }, 20ms, depository, consumers);
 
   addProducer(processor, "Dan", {

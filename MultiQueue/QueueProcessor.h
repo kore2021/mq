@@ -144,6 +144,12 @@ void mq::QueueProcessor<QueueKey>::setConsumer(const QueueKey& key, std::weak_pt
     m_connections.erase(it);
   }
 
+  if (pConsumer.expired())
+  {
+    m_consumers.erase(key);
+    return;
+  }
+
   m_consumers[key] = pConsumer;
 
   if (m_pThreadPool && !m_pThreadPool->empty())
