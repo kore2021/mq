@@ -1,7 +1,7 @@
-#include <iostream>
-
+#include "MultiQueue/IConsumer.h"
 #include "MultiQueue/IQueueable.h"
 #include "MultiQueue/QueueProcessor.h"
+#include "MultiQueue/Queue.h"
 
 #include <cmath>
 #include <cstddef>
