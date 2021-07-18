@@ -16,27 +16,39 @@
 
 namespace mq
 {
+  // The class uses ThreadPool with several threads for queue multi-processing
   template <typename QueueKey>
   class QueueProcessor
   {
   public:
+    // It allows to create a processor with launched threads
     QueueProcessor(std::size_t threadCount = 0);
     ~QueueProcessor();
 
+    // These functions allow to control queues
     void addQueue(const QueueKey& key);
     void removeQueue(const QueueKey& key);
+
+    // A client is able to add elements to a queue directly
     std::shared_ptr<Queue> getQueue(const QueueKey& key);
+
+    // Flush queues if you need to wait until all elements are processed
     void flushQueues();
 
+    // Assign a consumer for an existent or non-existent queue
     void setConsumer(const QueueKey& key, std::weak_ptr<IConsumer> pConsumer);
 
+    // Connect queue and consumers to threads
     void connect(std::size_t threadCount);
+    // Connect a shared thread pool
     void connect(std::shared_ptr<ThreadPool> pThreadPool);
+    // Disconnect the current thread pool
     void disconnect();
-
   private:
+    // A thread will get a new task if queue and consumer exist
     void connectQueueWithConsumerToThread(const QueueKey& key);
 
+    // This structure holds a connection
     struct Connection
     {
       ThreadId threadId = 0;
@@ -189,6 +201,7 @@ void mq::QueueProcessor<QueueKey>::connectQueueWithConsumerToThread(const QueueK
   if (m_connections.count(key) || !m_pThreadPool)
     throw std::exception();
 
+  // threadableId allows to have an unique identification of an event source
   const auto thread = m_pThreadPool->getThread();
   const auto threadableId = ++m_lastThreadableId;
   auto pEventAdapter = std::make_unique<QueueEventAdapter>(*itQueue->second, *thread.first, threadableId);

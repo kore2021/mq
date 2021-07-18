@@ -52,32 +52,35 @@ int main()
 
   auto accountant = Accountant{};
   auto producers = ProducerStorage{};
-  addProducer(processor, "Alice", {
-      { "EUR",  4 },
-      { "CNY",  1 },
-    }, 20ms, producers, accountant);
-  addProducer(processor, "Bob",   {
-      { "RUB",  1 },
-      { "RUB",  5 },
-      { "USD", 10 },
-    }, 50ms, producers, accountant);
-  addProducer(processor, "Clare", {
-      { "EUR",  1 },
-      { "USD", 10 }
-    }, 20ms, producers, accountant);
+  addProducer(processor, "Alice",
+  {
+    { "EUR",  4 },
+    { "CNY",  1 },
+  }, 20ms, producers, accountant);
+  addProducer(processor, "Bob",
+  {
+    { "RUB",  1 },
+    { "RUB",  5 },
+    { "USD", 10 },
+  }, 50ms, producers, accountant);
+  addProducer(processor, "Clare",
+  {
+    { "EUR",  1 },
+    { "USD", 10 }
+  }, 20ms, producers, accountant);
   auto consumers = ConsumerStorage{};
   addBroker(processor, "T. Rex", { "RUB", "USD" }, 50ms, depository, consumers);
-  // There is a example how to replace a consumer on air
-  // Timeout allows to demostrate it
+  // There is a example how to replace a consumer on the fly
+  // Timeout allows emulating a lag
   this_thread::sleep_for(100ms);
   addBroker(processor, "Acrocanthosaurus", { "USD" }, 10ms, depository, consumers);
   addBroker(processor, "Torvosaurus", { "EUR" }, 20ms, depository, consumers);
 
   addProducer(processor, "Dan", {
-      { "USD", 11 }
-    }, 20ms, producers, accountant);
+    { "USD", 11 }
+  }, 20ms, producers, accountant);
 
-  // wait for all producers
+  // Wait for all producers
   for (auto& producer : producers)
     producer.second->join();
 
@@ -99,7 +102,7 @@ int main()
 
   processor.flushQueues();
 
-  // print the result state of depository
+  // Print the result state of depository
   printRecords(depository);
 
   // This function checks the results are correct
@@ -123,7 +126,6 @@ public:
   QueueableDeal(const QueueValue& value) : m_value(value) {}
   ~QueueableDeal() override = default;
 
-  // self
   QueueValue value() const { return m_value; }
 
 private:

@@ -11,16 +11,18 @@ namespace mq
 
 namespace mq
 {
+  // The class notifies a thread about a queue event
   class QueueEventAdapter : public Queue::IListener
   {
   public:
+    // threadableEventId will be sent to a thread on a queue event
     QueueEventAdapter(Queue& queue, Thread& thread, ThreadableId threadableEventId);
     ~QueueEventAdapter() override;
 
     // Queue::IListener
     void onEnqueued() override;
 
-    // self
+    // 
     ThreadableId threadableEventId() const;
 
   private:

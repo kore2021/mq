@@ -16,6 +16,7 @@ namespace mq
 
 namespace mq
 {
+  // The queue for IQueueable queueing
   class Queue
   {
   public:

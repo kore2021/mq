@@ -25,7 +25,7 @@ void QueueConsumer::async()
         pConsumer->consume(*pQueueable);
 }
 
-std::size_t QueueConsumer::capacity() const
+std::size_t QueueConsumer::workload() const
 {
   if (auto pQueue = m_pQueue.lock())
     return pQueue->size();

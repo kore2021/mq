@@ -8,6 +8,7 @@ namespace mq
 
 namespace mq
 {
+  // The interface of a queue consumer that consumes IQueueable
   class IConsumer
   {
   public:

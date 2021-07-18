@@ -35,11 +35,11 @@ void Thread::run()
               tasks.emplace_back(id, it->second);
           }
 
-          // we consume one unit of capacity per dequeuing, so we need to save an evented state
+          // we consume one unit of capacity per dequeuing, so we need to save a triggered state
           m_events.clear();
           for (const auto& task : tasks)
             if (auto pThreadable = task.second.lock())
-              if (pThreadable->capacity() > 1)
+              if (pThreadable->workload() > 1)
                 m_events.insert(task.first);
         }
        

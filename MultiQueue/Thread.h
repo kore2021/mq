@@ -22,6 +22,7 @@ namespace mq
 {
   using ThreadId = std::size_t;
 
+  // There is a thread abstraction for IThreadable processing
   class Thread
   {
   public:
@@ -32,10 +33,13 @@ namespace mq
     void shutdown();
     void flush();
 
+    // Assign multiple IThreadable for the thread
     void attach(ThreadableId id, std::weak_ptr<IThreadable> pThreadable);
     void detach(ThreadableId id);
+    // Return estimated utilization 
     std::size_t getUtilization() const;
 
+    // Notify that IThreadable should be processed
     void setThreadableEvent(ThreadableId id);
  
   private:

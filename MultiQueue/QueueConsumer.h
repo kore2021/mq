@@ -13,6 +13,7 @@ namespace mq
 
 namespace mq
 {
+  // The class connects a queue with its consumer
   class QueueConsumer : public IThreadable
   {
   public:
@@ -21,7 +22,7 @@ namespace mq
 
     // IThreadable
     void async() override;
-    std::size_t capacity() const override;
+    std::size_t workload() const override;
 
   private:
     std::weak_ptr<Queue> m_pQueue;
