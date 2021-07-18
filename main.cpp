@@ -29,7 +29,6 @@ using DepositoryRecord = pair<string, QueueValue>;
 using Depository = pair<mutex, vector<DepositoryRecord>>;
 using Accountant = map<QueueKey, QueueValueCountable>;
 
-ostream& operator<< (std::ostream& ostream, const QueueValue& value);
 ostream& operator<< (std::ostream& ostream, const DepositoryRecord& value);
 
 void addProducer(QueueProcessor& processor,const string& name, const vector<pair<string, size_t>>& wishlist, std::chrono::milliseconds latency,
