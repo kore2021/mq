@@ -4,6 +4,7 @@
 #include "MultiQueue/QueueProcessor.h"
 
 #include <cmath>
+#include <cstddef>
 #include <iostream>
 #include <map>
 #include <set>
@@ -44,11 +45,11 @@ int main()
   cout << "MultiQueue test cases" << endl;
   Depository depository;
 
-  QueueProcessor processor(2);
+  QueueProcessor processor(4);
   processor.addQueue("RUB");
   processor.addQueue("USD");
   processor.addQueue("EUR");
-  processor.run();
+  processor.connect(2);
 
   auto accountant = Accountant{};
   auto producers = ProducerStorage{};
@@ -65,15 +66,6 @@ int main()
       { "EUR",  1 },
       { "USD", 10 }
     }, 20ms, producers, accountant);
-/*
-  for (size_t i = 0; i < 10; ++i)
-  {
-    const auto name = "Zombie_" + to_string(i);
-    addProducer(processor, name, {
-        { "USD", 7 }
-      }, 250ms, producers, accountant);
-  }
-*/
   auto consumers = ConsumerStorage{};
   addBroker(processor, "T. Rex", { "RUB", "USD" }, 50ms, depository, consumers);
   // There is a example how to replace a consumer on air
@@ -89,9 +81,24 @@ int main()
   // wait for all producers
   for (auto& producer : producers)
     producer.second->join();
-  cout << "Producers have finished." << endl;
 
-  processor.flush();
+  processor.flushQueues();
+
+  processor.connect(4);
+
+  auto zombieProducers = ProducerStorage{};
+  for (size_t i = 0; i < 2; ++i)
+  {
+    const auto name = "Zombie_" + to_string(i);
+    addProducer(processor, name, {
+      { "USD", 3 }
+    }, 25ms, zombieProducers, accountant);
+  }
+
+  for (auto& producer : zombieProducers)
+    producer.second->join();
+
+  processor.flushQueues();
 
   // print the result state of depository
   printRecords(depository);

@@ -2,12 +2,15 @@
 
 #include "IConsumer.h"
 #include "Queue.h"
-#include "QueueThread.h"
+#include "QueueConsumer.h"
+#include "QueueEventAdapter.h"
+#include "ThreadPool.h"
 
+#include <cstddef>
 #include <exception>
+#include <map>
 #include <memory>
 #include <mutex>
-#include <unordered_map>
 #include <utility>
 
 
@@ -17,164 +20,181 @@ namespace mq
   class QueueProcessor
   {
   public:
-    QueueProcessor(size_t threadCount);
+    QueueProcessor(std::size_t threadCount = 0);
     ~QueueProcessor();
-
-    unsigned int threadCount() const;
 
     void addQueue(const QueueKey& key);
     void removeQueue(const QueueKey& key);
     std::shared_ptr<Queue> getQueue(const QueueKey& key);
+    void flushQueues();
 
     void setConsumer(const QueueKey& key, std::weak_ptr<IConsumer> pConsumer);
 
-    void run();
-    void shutdown();
-    void flush();
+    void connect(std::size_t threadCount);
+    void connect(std::shared_ptr<ThreadPool> pThreadPool);
+    void disconnect();
 
   private:
-    const size_t m_threadCount = 0;
-    size_t getUnderutilizedThreadId() const;
+    void connectQueueWithConsumerToThread(const QueueKey& key);
 
-    struct QueueWithConsumer
+    struct Connection
     {
-      std::shared_ptr<Queue> pQueue;
-      std::weak_ptr<IConsumer> pConsumer;
-      std::weak_ptr<QueueThread> pConsumerThread;
+      ThreadId threadId = 0;
+      std::unique_ptr<QueueEventAdapter> pEventAdapter;
+      std::shared_ptr<QueueConsumer> pConsumer;
+
+      Connection(ThreadId threadId, std::unique_ptr<QueueEventAdapter> pEventAdapter, std::shared_ptr<QueueConsumer> pConsumer) :
+        threadId(threadId),
+        pEventAdapter(std::move(pEventAdapter)),
+        pConsumer(pConsumer) {}
     };
 
-    std::mutex m_queueMutex;
-    std::unordered_map<QueueKey, QueueWithConsumer> m_queues;
-    std::vector<std::shared_ptr<QueueThread>> m_threads;
+    std::mutex m_mutex;
+    std::shared_ptr<ThreadPool> m_pThreadPool;
+    std::map<QueueKey, std::weak_ptr<IConsumer>> m_consumers;
+    std::map<QueueKey, std::shared_ptr<Queue>> m_queues;
+    std::map<QueueKey, Connection> m_connections;
+    ThreadableId m_lastThreadableId = 0;
   };
 }
 
 template <typename QueueKey>
-mq::QueueProcessor<QueueKey>::QueueProcessor(size_t threadCount) : m_threadCount(threadCount)
+mq::QueueProcessor<QueueKey>::QueueProcessor(std::size_t threadCount)
 {
-
+  connect(threadCount);
 }
 
 template <typename QueueKey>
 mq::QueueProcessor<QueueKey>::~QueueProcessor()
 {
-  shutdown();
-}
-
-template <typename QueueKey>
-unsigned int mq::QueueProcessor<QueueKey>::threadCount() const
-{
-  return m_threadCount;
+  disconnect();
 }
 
 template <typename QueueKey>
 void mq::QueueProcessor<QueueKey>::addQueue(const QueueKey& key)
 {
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
+  const std::lock_guard<std::mutex> lock(m_mutex);
   if (m_queues.count(key))
     return;
 
-  m_queues.emplace(key, QueueWithConsumer{ std::make_shared<Queue>(), {} });
+  auto emplaced = m_queues.emplace(key, std::make_shared<Queue>());
+
+  if (m_pThreadPool && !m_pThreadPool->empty())
+    connectQueueWithConsumerToThread(key);
 }
 
 template <typename QueueKey>
 void mq::QueueProcessor<QueueKey>::removeQueue(const QueueKey& key)
 {
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
+  const std::lock_guard<std::mutex> lock(m_mutex);
+  auto it = m_connections.find(key);
+  if (it != m_queueEventAdapters.end())
+  {
+    m_threadPool.get(it->second.threadId)->detach(it->second.pAdapter->threadableEventId());
+    m_connections.erase(it);
+  }
+
   m_queues.erase(key);
 }
 
 template <typename QueueKey>
 std::shared_ptr<mq::Queue> mq::QueueProcessor<QueueKey>::getQueue(const QueueKey& key)
 {
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
+  const std::lock_guard<std::mutex> lock(m_mutex);
   auto it = m_queues.find(key);
   if (it == m_queues.end())
     return{};
 
-  return it->second.pQueue;
+  return it->second;
+}
+
+template <typename QueueKey>
+void mq::QueueProcessor<QueueKey>::flushQueues()
+{
+  const std::lock_guard<std::mutex> lock(m_mutex);
+  if (!m_pThreadPool)
+    return;
+
+  m_pThreadPool->flush();
 }
 
 template <typename QueueKey>
 void mq::QueueProcessor<QueueKey>::setConsumer(const QueueKey& key, std::weak_ptr<IConsumer> pConsumer)
 {
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
-  auto it = m_queues.find(key);
-  if (it == m_queues.end())
+  const std::lock_guard<std::mutex> lock(m_mutex);
+  auto it = m_connections.find(key);
+  if (it != m_connections.end())
+  {
+    if (!m_pThreadPool)
+      throw std::exception();
+
+    m_pThreadPool->getThread(it->second.threadId)->detach(it->second.pEventAdapter->threadableEventId());
+    m_connections.erase(it);
+  }
+
+  m_consumers[key] = pConsumer;
+
+  if (m_pThreadPool && !m_pThreadPool->empty())
+    connectQueueWithConsumerToThread(key);
+}
+
+template <typename QueueKey>
+void mq::QueueProcessor<QueueKey>::connect(std::size_t threadCount)
+{
+  if (!threadCount)
     return;
 
-  if (auto pThread = it->second.pConsumerThread.lock())
-    pThread->detach(*it->second.pQueue);
-
-  it->second.pConsumer = pConsumer;
-
-  if (!m_threads.empty())
-  {
-    const auto threadId = getUnderutilizedThreadId();
-    auto& pThread = m_threads[threadId];
-    pThread->attach(*it->second.pQueue, it->second.pConsumer);
-    it->second.pConsumerThread = pThread;
-  }
+  auto pThreadPool = std::make_shared<ThreadPool>(threadCount);
+  pThreadPool->run();
+  connect(pThreadPool);
 }
 
 template <typename QueueKey>
-void mq::QueueProcessor<QueueKey>::run()
+void mq::QueueProcessor<QueueKey>::connect(std::shared_ptr<ThreadPool> pThreadPool)
 {
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
-  if (!m_threads.empty())
+  disconnect();
+
+  const std::lock_guard<std::mutex> lock(m_mutex);
+  m_pThreadPool = pThreadPool;
+  if (!m_pThreadPool->empty())
+    for (const auto& queue : m_queues)
+      connectQueueWithConsumerToThread(queue.first);
+}
+
+template <typename QueueKey>
+void mq::QueueProcessor<QueueKey>::disconnect()
+{
+  const std::lock_guard<std::mutex> lock(m_mutex);
+  if (!m_pThreadPool)
+    return;
+
+  for (const auto& connection : m_connections)
+    m_pThreadPool->getThread(connection.second.threadId)->detach(connection.second.pEventAdapter->threadableEventId());
+  m_connections.clear();
+
+  m_pThreadPool.reset();
+}
+
+template <typename QueueKey>
+void mq::QueueProcessor<QueueKey>::connectQueueWithConsumerToThread(const QueueKey& key)
+{
+  auto itQueue = m_queues.find(key);
+  if (itQueue == m_queues.end())
+    return;
+
+  auto itConsumer = m_consumers.find(key);
+  if (itConsumer == m_consumers.end())
+    return;
+
+  if (m_connections.count(key) || !m_pThreadPool)
     throw std::exception();
 
-  m_threads.resize(m_threadCount);
-  for (size_t i = 0; i < m_threadCount; ++i)
-    m_threads[i] = std::make_shared<QueueThread>();
+  const auto thread = m_pThreadPool->getThread();
+  const auto threadableId = ++m_lastThreadableId;
+  auto pEventAdapter = std::make_unique<QueueEventAdapter>(*itQueue->second, *thread.first, threadableId);
+  auto pQueueConsumer = std::make_shared<QueueConsumer>(itQueue->second, itConsumer->second);
 
-  size_t threadIndex = 0;
-  for (auto& queue : m_queues)
-  {
-    auto& pThread = m_threads[(threadIndex++) % m_threadCount];
-    pThread->attach(*queue.second.pQueue, queue.second.pConsumer);
-    queue.second.pConsumerThread = pThread;
-  }
-
-  for (auto& pThread : m_threads)
-    pThread->run();
-}
-
-template <typename QueueKey>
-void mq::QueueProcessor<QueueKey>::shutdown()
-{
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
-  for (const auto& pThread : m_threads)
-    pThread->shutdown();
-
-  for (auto& queue : m_queues)
-    queue.second.pConsumerThread.reset();
-
-  m_threads.clear();
-}
-
-template <typename QueueKey>
-void mq::QueueProcessor<QueueKey>::flush()
-{
-  const std::lock_guard<std::mutex> lock(m_queueMutex);
-  for (const auto& pThread : m_threads)
-    pThread->flush();
-}
-
-template <typename QueueKey>
-size_t mq::QueueProcessor<QueueKey>::getUnderutilizedThreadId() const
-{
-  auto minCapacity = std::numeric_limits<size_t>::max();
-  size_t result = 0;
-  for (size_t i = 0, ie = m_threads.size(); i < ie; ++i)
-  {
-    const auto capacity = m_threads[i]->capacity();
-    if (capacity < minCapacity)
-    {
-      minCapacity = capacity;
-      result = i;
-    }
-  }
-
-  return result;
+  auto connection = Connection{ thread.second, std::move(pEventAdapter), pQueueConsumer };
+  thread.first->attach(connection.pEventAdapter->threadableEventId(), pQueueConsumer);
+  m_connections.emplace(key, std::move(connection));
 }

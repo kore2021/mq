@@ -1,5 +1,11 @@
 #pragma once
 
+
+namespace mq
+{
+  class IQueueable;
+}
+
 namespace mq
 {
   class IConsumer

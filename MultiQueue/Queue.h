@@ -3,6 +3,7 @@
 #include "IQueueable.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -19,7 +20,7 @@ namespace mq
     public:
       virtual ~IListener() = default;
 
-      virtual void onEnqueued(const Queue& queue) = 0;
+      virtual void onEnqueued() = 0;
     };
 
     Queue() = default;
@@ -32,7 +33,7 @@ namespace mq
 
     void enqueue(std::unique_ptr<IQueueable>);
     std::unique_ptr<IQueueable> dequeue();
-    size_t size() const;
+    std::size_t size() const;
 
     void addListener(IListener* pListener);
     void removeListener(IListener* pListener);
@@ -54,7 +55,7 @@ void mq::Queue::enqueue(std::unique_ptr<IQueueable> pQueueable)
   }
 
   for (const auto& pListener : listeners)
-    pListener->onEnqueued(*this);
+    pListener->onEnqueued();
 }
 
 std::unique_ptr<mq::IQueueable> mq::Queue::dequeue()
@@ -68,7 +69,7 @@ std::unique_ptr<mq::IQueueable> mq::Queue::dequeue()
   return result;
 }
 
-size_t mq::Queue::size() const
+std::size_t mq::Queue::size() const
 {
   const std::lock_guard<std::mutex> lock(m_mutex);
   return m_queue.size();
