@@ -26,7 +26,8 @@ void Thread::run()
       {
         tasks.clear();
         {
-          const std::lock_guard<std::mutex> lock(m_mutex);
+          std::unique_lock<std::mutex> lock(m_mutex);
+          m_eventQuueeed.wait(lock, [&]() { return !m_running || !m_events.empty(); });
           for (const auto id : m_events)
           {
             auto it = m_tasks.find(id);
@@ -40,22 +41,13 @@ void Thread::run()
             if (auto pThreadable = task.second.lock())
               if (pThreadable->capacity() > 1)
                 m_events.insert(task.first);
-
-          if (!tasks.empty())
-            m_processing.test_and_set();
         }
        
         for (const auto& pQueue : tasks)
           if (auto pThreadable = pQueue.second.lock())
             pThreadable->async();
 
-        if (!tasks.empty())
-          m_processing.clear();
-
-        if (tasks.empty())
-          std::this_thread::sleep_for(c_IdleTimeout);
-        else
-          std::this_thread::yield();
+        m_eventDequeued.notify_all();
       }
     });
 }
@@ -66,34 +58,25 @@ void Thread::shutdown()
     return;
 
   m_running = false;
+  m_eventQuueeed.notify_all();
   m_pThread->join();
   m_pThread.reset();
 }
 
 void Thread::flush()
 {
-  size_t events = 0;
-  do
-  {
-    {
-      const std::lock_guard<std::mutex> lock(m_mutex);
-      events = m_events.size();
-      while (m_processing.test_and_set())
-        std::this_thread::sleep_for(c_IdleTimeout);
-      m_processing.clear();
-    }
-
-    if (events)
-      std::this_thread::sleep_for(c_IdleTimeout);
-
-  } while (events);
+  std::unique_lock<std::mutex> lock(m_mutex);
+  m_eventDequeued.wait(lock, [&]() { return !m_running || m_events.empty(); });
 }
 
 void Thread::attach(ThreadableId id, std::weak_ptr<IThreadable> pThreadable)
 {
-  const std::lock_guard<std::mutex> lock(m_mutex);
-  m_tasks[id] = pThreadable;
-  m_events.insert(id);
+  {
+    const std::lock_guard<std::mutex> lock(m_mutex);
+    m_tasks[id] = pThreadable;
+    m_events.insert(id);
+  }
+  m_eventQuueeed.notify_all();
 }
 
 void Thread::detach(ThreadableId id)
@@ -111,6 +94,9 @@ std::size_t Thread::getUtilization() const
 
 void Thread::setThreadableEvent(ThreadableId id)
 {
-  const std::lock_guard<std::mutex> lock(m_mutex);
-  m_events.insert(id);
+  {
+    const std::lock_guard<std::mutex> lock(m_mutex);
+    m_events.insert(id);
+  }
+  m_eventQuueeed.notify_all();
 }

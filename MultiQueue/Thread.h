@@ -4,7 +4,7 @@
 
 #include <atomic>
 #include <cstddef>
-#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -21,8 +21,6 @@ namespace mq
 namespace mq
 {
   using ThreadId = std::size_t;
-
-  constexpr auto c_IdleTimeout = std::chrono::milliseconds(1);
 
   class Thread
   {
@@ -43,7 +41,8 @@ namespace mq
   private:
     mutable std::mutex m_mutex;
     std::atomic<bool> m_running = true;
-    std::atomic_flag m_processing = ATOMIC_FLAG_INIT;
+    std::condition_variable m_eventQuueeed;
+    std::condition_variable m_eventDequeued;
     std::unique_ptr<std::thread> m_pThread;
 
     std::set<ThreadableId> m_events;
