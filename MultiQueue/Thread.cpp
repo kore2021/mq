@@ -28,6 +28,9 @@ void Thread::run()
         {
           std::unique_lock<std::mutex> lock(m_mutex);
           m_eventQuueeed.wait(lock, [&]() { return !m_running || !m_events.empty(); });
+          if (!m_running)
+            break;
+
           for (const auto id : m_events)
           {
             auto it = m_tasks.find(id);
