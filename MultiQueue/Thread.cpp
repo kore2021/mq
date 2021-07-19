@@ -57,8 +57,13 @@ void Thread::shutdown()
   if (!m_pThread)
     return;
 
-  m_running = false;
+  // We have to use the lock, because a conditional variables uses m_running in their predicates
+  {
+    const std::lock_guard<std::mutex> lock(m_mutex);
+    m_running = false;
+  }
   m_eventQuueeed.notify_all();
+
   m_pThread->join();
   m_pThread.reset();
 }
